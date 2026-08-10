@@ -1,0 +1,31 @@
+[project]
+name = "reconw"
+version = "0.1.0"
+description = "Recon Pipeline Orchestrator"
+authors = [
+    {name = "Toxkay",email = "karenfadywork@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "typer (>=0.27.1,<0.28.0)",
+    "pydantic (>=2.13.4,<3.0.0)",
+    "pyyaml (>=6.0.3,<7.0.0)",
+    "rich (>=15.0.0,<16.0.0)"
+]
+
+[tool.poetry]
+packages = [{include = "reconw"}]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "pytest (>=9.1.1,<10.0.0)"
+]
+
+[tool.poetry.scripts]
+reconw = "reconw.cli:cli"
+
