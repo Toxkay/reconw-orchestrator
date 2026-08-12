@@ -1,4 +1,4 @@
-http://dev*.playcanvas.com
+playcanvas.com
 www.bitstrips.com
 www.bitmoji.com
 web.snapchat.com

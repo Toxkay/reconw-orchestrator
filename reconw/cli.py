@@ -1,19 +1,11 @@
 from pathlib import Path
-from typing import Optional
 # pyrefly: ignore [missing-import]
 import typer
 
+from reconw.pipeline import build_targets
+
 # this is how we define our main application
 cli = typer.Typer(help="Recon Pipeline Orchestrator")
-
-
-def load_targets(file_path: Path) -> list[str]:
-    """Read targets from file, filtering out comments and blank lines."""
-    return [
-        line.strip()
-        for line in file_path.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.strip().startswith("#")
-    ]
 
 
 @cli.command()
@@ -29,7 +21,7 @@ def reconw(
         readable=True,
         resolve_path=True,
     ),
-    out_of_scope: Optional[Path] = typer.Option(
+    out_of_scope: Path = typer.Option(
         ...,
         "--outscope",
         "-o",
@@ -43,17 +35,21 @@ def reconw(
 
 ):
     """Recon Pipeline Orchestrator"""
-    in_targets = load_targets(in_scope)
-    out_targets = load_targets(out_of_scope) if out_of_scope else []
+    try:
+        targets = build_targets(in_scope, out_of_scope)
+    except ValueError as exc:
+        typer.secho(f"[-] Validation error: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
 
-    typer.echo(f"[+] Loaded {len(in_targets)} in-scope target(s) from: {in_scope}")
+    for target in targets.in_scope:
+        typer.echo(f"[+] Validated in-scope target: {target}")
 
+    for target in targets.out_of_scope:
+        typer.echo(f"[-] Validated out-of-scope target: {target}")
 
-    if out_of_scope:
-        typer.echo(f"[-] Loaded {len(out_targets)} out-of-scope target(s) from: {out_of_scope}")
+    typer.echo(f"[+] Loaded {len(targets.in_scope)} in-scope target(s) from: {in_scope}")
 
-    else:
-        typer.echo("[-] No out-of-scope targets specified.")
+    typer.echo(f"[-] Loaded {len(targets.out_of_scope)} out-of-scope target(s) from: {out_of_scope}")
 
 
 
