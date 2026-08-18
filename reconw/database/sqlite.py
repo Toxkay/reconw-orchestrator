@@ -1,1 +1,0 @@
-"""SQLite storage placeholder."""
