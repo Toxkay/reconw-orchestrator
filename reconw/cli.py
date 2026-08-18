@@ -3,9 +3,9 @@ from pathlib import Path
 import typer
 
 from reconw.pipeline import build_targets
+from reconw.storage.db import init_db
 
-# this is how we define our main application
-cli = typer.Typer(help="Recon Pipeline Orchestrator")
+cli = typer.Typer(help="ReconW Pipeline Orchestrator")
 
 
 @cli.command()
@@ -32,9 +32,22 @@ def reconw(
         readable=True,
         resolve_path=True,
     ),
-
+    db_path: Path = typer.Option(
+        Path("reconw.db"),
+        "--db",
+        "-d",
+        help="Path to ReconW database file",
+        file_okay=True,
+        dir_okay=False,
+        resolve_path=True,
+    ),
 ):
-    """Recon Pipeline Orchestrator"""
+    """ReconW Pipeline Orchestrator"""
+    # 1. Automatically initialize database tables
+    init_db(db_path)
+    typer.secho(f"[*] Database ready at: {db_path}", fg=typer.colors.CYAN)
+
+    # 2. Validate and load scope
     try:
         targets = build_targets(in_scope, out_of_scope)
     except ValueError as exc:
@@ -48,11 +61,8 @@ def reconw(
         typer.echo(f"[-] Validated out-of-scope target: {target}")
 
     typer.echo(f"[+] Loaded {len(targets.in_scope)} in-scope target(s) from: {in_scope}")
-
     typer.echo(f"[-] Loaded {len(targets.out_of_scope)} out-of-scope target(s) from: {out_of_scope}")
 
 
-
-# and this is how we run the application
 if __name__ == "__main__":
     cli()
