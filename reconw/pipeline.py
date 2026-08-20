@@ -33,6 +33,7 @@ class ReconTargets:
 class PipelineSummary:
     """Summary of findings after a pipeline execution."""
     run_id: int
+    program_name: str
     subdomains_count: int
     resolved_hosts_count: int
     live_endpoints_count: int
@@ -62,6 +63,7 @@ def build_targets(in_scope_file: Path, out_of_scope_file: Path | None = None) ->
 
 
 def run_pipeline(
+    program_name: str,
     targets: ReconTargets,
     cli_args: str = "",
     enable_crawler: bool = True,
@@ -71,6 +73,7 @@ def run_pipeline(
     """Executes the full 5-stage reconnaissance pipeline and generates an HTML report.
 
     Args:
+        program_name: Required name of the target program/organization.
         targets: Validated ReconTargets (in-scope and out-of-scope lists).
         cli_args: Optional CLI string for audit logging in the `run` table.
         enable_crawler: Whether to run active shallow crawling (Katana).
@@ -84,7 +87,11 @@ def run_pipeline(
 
     # 1. Initialize Scope Evaluator & SQLite Run Record
     evaluator = ScopeEvaluator(in_scope=targets.in_scope, out_of_scope=targets.out_of_scope)
-    run_id = create_run(status="RUNNING", cli_args=cli_args)
+    run_id = create_run(
+        program_name=program_name,
+        status="RUNNING",
+        cli_args=cli_args,
+    )
 
     try:
         # ==========================================================
@@ -149,6 +156,7 @@ def run_pipeline(
 
         return PipelineSummary(
             run_id=run_id,
+            program_name=program_name,
             subdomains_count=len(subdomains),
             resolved_hosts_count=len(resolved_hosts),
             live_endpoints_count=len(live_endpoints),

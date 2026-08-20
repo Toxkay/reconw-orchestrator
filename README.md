@@ -6,6 +6,7 @@
 
 ## Features
 
+- **Program-Centric Tracking:** Assigns every scan to a specific bug bounty program or organization (e.g. `Uber`, `Shopify`, `Bugcrowd-XYZ`), tracking runs and findings per program in SQLite and HTML reports.
 - **Automated 5-Stage Reconnaissance Pipeline:**
   1. **Stage 1 (Subfinder):** Passive subdomain discovery across multiple OSINT sources.
   2. **Stage 2 (DNSx):** Fast multi-record DNS resolution (`A`, `AAAA`, `CNAME`) & live host filtering.
@@ -14,6 +15,7 @@
   5. **Stage 5 (Prioritize):** Pure Python explainable scoring engine (+30 Admin/Auth, +20 Sensitive APIs, +10 401/403, etc.) ranking targets from **Critical** to **Info**.
 - **Audit Provenance & SQLite Storage:** 8-table relational schema logging every command, exit code, timestamp, and finding.
 - **Interactive Offline HTML Dashboard:**
+  - Program name badge and run metadata.
   - Client-side search & filtering by severity band (**Critical**, **High**, **Medium**, **Low**, **Info**).
   - Collapsible scoring rule breakdown.
   - Client-side JSON export button.
@@ -55,12 +57,6 @@ pipx install .
 pip install . --break-system-packages
 ```
 
-### Option C: Development Setup (Using Poetry)
-```bash
-poetry install
-poetry run pytest
-```
-
 ---
 
 ## Usage
@@ -72,14 +68,15 @@ reconw doctor
 ```
 
 ### 2. Run Full Reconnaissance
-Provide your in-scope targets file and optional out-of-scope exclusions:
+Provide your target program name, in-scope targets file, and optional out-of-scope exclusions:
 ```bash
-reconw run -i inscope.txt -o outscope.txt
+reconw run -p "Uber" -i inscope.txt -o outscope.txt
 ```
 
 #### CLI Options:
 | Flag | Description | Default |
 | :--- | :--- | :--- |
+| `-p, --program` | **Required.** Target program / organization name (e.g. `"Uber"`) | — |
 | `-i, --inscope` | **Required.** Path to in-scope targets text file | — |
 | `-o, --outscope` | Path to out-of-scope exclusion rules file | `None` |
 | `-d, --db` | SQLite database file location | `reconw.db` |
@@ -90,15 +87,15 @@ reconw run -i inscope.txt -o outscope.txt
 ---
 
 ### 3. View Historical Runs
-List previous reconnaissance runs saved in the SQLite database:
+List previous reconnaissance runs grouped by program:
 ```bash
 reconw list-runs
 ```
 
 ### 4. Regenerate HTML Report
-Generate or re-render an interactive HTML report from any past database run without rescanning:
+Generate or re-render an interactive HTML report from any past database run:
 ```bash
-reconw report -r 1 -o my_report.html
+reconw report -r 1 -o uber_report.html
 ```
 
 ---

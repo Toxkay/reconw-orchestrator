@@ -29,12 +29,14 @@ def generate_report_data(run_id: int) -> dict[str, Any]:
     """Assembles all run records from SQLite into a structured report dictionary."""
     run_meta = get_run(run_id) or {
         "id": run_id,
+        "program_name": "Unknown Program",
         "started_at": "Unknown",
         "finished_at": "Unknown",
         "status": "COMPLETED",
         "cli_args": "reconw run",
     }
 
+    program_name = run_meta.get("program_name") or "Unknown Program"
     assets = get_assets_for_run(run_id)
     endpoints = get_all_endpoints_for_run(run_id)
     urls = get_urls_for_run(run_id)
@@ -82,6 +84,7 @@ def generate_report_data(run_id: int) -> dict[str, Any]:
 
     # Prepare JSON blob for client-side export
     data_blob = {
+        "program_name": program_name,
         "run": run_meta,
         "summary": {
             "subdomains_count": len(assets),
@@ -98,6 +101,7 @@ def generate_report_data(run_id: int) -> dict[str, Any]:
     }
 
     return {
+        "program_name": program_name,
         "run": run_meta,
         "assets": assets,
         "endpoints": endpoints,
@@ -116,16 +120,7 @@ def render_html_report(
     output_path: Path | str | None = None,
     reports_dir: Path | str = Path("reports"),
 ) -> Path:
-    """Renders and writes a standalone HTML report for the specified run ID.
-
-    Args:
-        run_id: Pipeline run identifier.
-        output_path: Optional explicit file path for the output HTML.
-        reports_dir: Directory where reports are placed if output_path is not specified.
-
-    Returns:
-        Path to the generated HTML report file.
-    """
+    """Renders and writes a standalone HTML report for the specified run ID."""
     env = Environment(
         loader=FileSystemLoader(str(TEMPLATES_DIR)),
         autoescape=select_autoescape(["html", "xml"]),

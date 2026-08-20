@@ -22,4 +22,10 @@ def init_db(db_path: Path | None = None) -> None:
     conn = get_connection(db_path)
     with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
         conn.executescript(f.read())
+    # Safe migration for existing databases: ensure program_name column exists
+    try:
+        conn.execute("ALTER TABLE run ADD COLUMN program_name TEXT DEFAULT ''")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # Column already exists
     conn.close()

@@ -30,6 +30,12 @@ cli = typer.Typer(
 
 @cli.command(name="run")
 def run_command(
+    program_name: str = typer.Option(
+        ...,
+        "--program",
+        "-p",
+        help="Target program or organization name (e.g. 'Uber', 'Shopify', 'Bugcrowd-XYZ')",
+    ),
     in_scope: Path = typer.Option(
         ...,
         "--inscope",
@@ -81,7 +87,12 @@ def run_command(
         help="Skip generating HTML report",
     ),
 ) -> None:
-    """Execute the full 5-stage reconnaissance pipeline."""
+    """Execute the full 5-stage reconnaissance pipeline for a specific program."""
+    clean_prog = program_name.strip()
+    if not clean_prog:
+        console.print("[bold red][-] Error:[/bold red] Program name cannot be empty.")
+        raise typer.Exit(code=1)
+
     # 1. Initialize custom or default database
     set_db_path(db_path)
     init_db(db_path)
@@ -101,6 +112,7 @@ def run_command(
     console.print(
         Panel.fit(
             f"[bold cyan]ReconW Orchestrator[/bold cyan]\n"
+            f"[bold white]Program Target:[/bold white] [bold yellow]{clean_prog}[/bold yellow]\n"
             f"[green]In-Scope Targets:[/green] {len(targets.in_scope)} domain(s)\n"
             f"[yellow]Out-of-Scope Exclusions:[/yellow] {len(targets.out_of_scope)} rule(s)\n"
             f"[blue]Database Path:[/blue] {db_path}",
@@ -110,7 +122,7 @@ def run_command(
     )
 
     # 4. Construct CLI args string for audit trail
-    args_str = f"reconw run -i {in_scope}"
+    args_str = f"reconw run -p \"{clean_prog}\" -i {in_scope}"
     if out_of_scope:
         args_str += f" -o {out_of_scope}"
     args_str += f" -d {db_path}"
@@ -119,8 +131,9 @@ def run_command(
 
     # 5. Execute Pipeline
     try:
-        with console.status("[bold cyan]Executing reconnaissance pipeline...[/bold cyan]", spinner="dots"):
+        with console.status(f"[bold cyan]Executing recon pipeline for '{clean_prog}'...[/bold cyan]", spinner="dots"):
             summary = run_pipeline(
+                program_name=clean_prog,
                 targets=targets,
                 cli_args=args_str,
                 enable_crawler=not no_crawl,
@@ -129,10 +142,11 @@ def run_command(
             )
 
         # 6. Print Execution Results Summary Table
-        table = Table(title=f"Run #{summary.run_id} Results Summary", border_style="cyan")
+        table = Table(title=f"Run #{summary.run_id} Results Summary — {clean_prog}", border_style="cyan")
         table.add_column("Metric", style="bold white")
         table.add_column("Count", style="bold green", justify="right")
 
+        table.add_row("Program Name", f"[bold yellow]{summary.program_name}[/bold yellow]")
         table.add_row("Discovered Subdomains (Subfinder)", str(summary.subdomains_count))
         table.add_row("Resolved Live Hosts (DNSx)", str(summary.resolved_hosts_count))
         table.add_row("Live HTTP Endpoints (HTTPx)", str(summary.live_endpoints_count))
@@ -142,7 +156,7 @@ def run_command(
         table.add_row("Execution Duration", f"{summary.duration_seconds}s")
 
         console.print(table)
-        console.print(f"[bold green][+] Run #{summary.run_id} completed successfully![/bold green]")
+        console.print(f"[bold green][+] Run #{summary.run_id} for '{clean_prog}' completed successfully![/bold green]")
         if summary.report_path and summary.report_path.exists():
             console.print(f"[bold cyan][+] HTML Report generated:[/bold cyan] [underline]{summary.report_path.resolve()}[/underline]")
         console.print(f"[blue][+] Database updated:[/blue] {db_path.resolve()}\n")
@@ -233,7 +247,7 @@ def list_runs_command(
     init_db(db_path)
 
     conn = get_connection(db_path)
-    cursor = conn.execute("SELECT id, started_at, finished_at, status, cli_args FROM run ORDER BY id DESC")
+    cursor = conn.execute("SELECT id, program_name, started_at, finished_at, status, cli_args FROM run ORDER BY id DESC")
     rows = cursor.fetchall()
     conn.close()
 
@@ -243,14 +257,16 @@ def list_runs_command(
 
     table = Table(title=f"Historical Runs ({db_path})", border_style="cyan")
     table.add_column("ID", justify="right", style="bold white")
+    table.add_column("Program", style="bold yellow")
     table.add_column("Started At", style="dim")
     table.add_column("Finished At", style="dim")
     table.add_column("Status", justify="center")
     table.add_column("CLI Command", style="cyan")
 
     for r in rows:
-        status_style = "[bold green]COMPLETED[/bold green]" if r[3] == "COMPLETED" else f"[bold yellow]{r[3]}[/bold yellow]"
-        table.add_row(str(r[0]), str(r[1] or ""), str(r[2] or "In Progress"), status_style, str(r[4] or ""))
+        prog = r[1] or "Unknown"
+        status_style = "[bold green]COMPLETED[/bold green]" if r[4] == "COMPLETED" else f"[bold yellow]{r[4]}[/bold yellow]"
+        table.add_row(str(r[0]), str(prog), str(r[2] or ""), str(r[3] or "In Progress"), status_style, str(r[5] or ""))
 
     console.print(table)
 

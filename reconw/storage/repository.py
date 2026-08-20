@@ -12,11 +12,17 @@ def utc_now() -> str:
 # 1. Pipeline Run Lifecycle
 # ==========================================
 
-def create_run(status: str = "RUNNING", scope_file_hash: str = "", config_hash: str = "", cli_args: str = "") -> int:
+def create_run(
+    program_name: str = "",
+    status: str = "RUNNING",
+    scope_file_hash: str = "",
+    config_hash: str = "",
+    cli_args: str = ""
+) -> int:
     conn = get_connection()
     cursor = conn.execute(
-        "INSERT INTO run (started_at, status, scope_file_hash, config_hash, cli_args) VALUES (?, ?, ?, ?, ?)",
-        (utc_now(), status, scope_file_hash, config_hash, cli_args)
+        "INSERT INTO run (program_name, started_at, status, scope_file_hash, config_hash, cli_args) VALUES (?, ?, ?, ?, ?, ?)",
+        (program_name, utc_now(), status, scope_file_hash, config_hash, cli_args)
     )
     conn.commit()
     return cursor.lastrowid

@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS run (
   id INTEGER PRIMARY KEY,
+  program_name TEXT,
   started_at TEXT, finished_at TEXT, status TEXT,
   scope_file_hash TEXT, config_hash TEXT, cli_args TEXT
 );
