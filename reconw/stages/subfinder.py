@@ -43,7 +43,6 @@ def run_subfinder(
     in_scope_domains: Sequence[str],
     run_id: int,
     scope_evaluator: ScopeEvaluator | None = None,
-    concurrency: int = 20,
     timeout: int = 300,
     retries: int = 1,
 ) -> list[str]:
@@ -56,14 +55,20 @@ def run_subfinder(
     console.print(f"[dim][DEBUG subfinder][/dim] Binary resolved: [cyan]{binary_path}[/cyan]")
     console.print(f"[dim][DEBUG subfinder][/dim] Target root domains ({len(root_domains)}): {', '.join(root_domains[:5])}{'...' if len(root_domains) > 5 else ''}")
 
-    # Write target root domains to a temporary file for subfinder
     temp_targets_file = write_temp_targets(root_domains, prefix="recon_subfinder_")
 
+    # Official Subfinder flags:
+    # -dL: File containing list of domains for subdomain discovery
+    # -silent: Show only subdomains in output
+    # -oJ: Write output in JSONL format
+    # -all: Use all passive sources for maximum discovery
+    # -cs: Include discovery sources in JSON output
     args = [
         "-dL", str(temp_targets_file),
         "-silent",
-        "-json",
-        "-c", str(concurrency),
+        "-oJ",
+        "-all",
+        "-cs",
     ]
 
     try:
