@@ -76,7 +76,7 @@ class DomainValidator:
         """Validate the domain syntax."""
         domain = target[2:] if target.startswith("*.") else target
 
-        # Reject any remaining non-standard ports (e.g. example.com:8080 is not a domain)
+        # Reject any remaining non-standard ports
         if ":" in domain:
             raise ValueError(f"Target '{target}' should not contain a port number.")
 
@@ -112,15 +112,6 @@ class URLValidator:
 
     @staticmethod
     def canonicalize(url: str) -> str:
-        """
-        Canonicalize an HTTP/HTTPS URL for deduplication:
-        - Strips fragments (#hash)
-        - Lowercases scheme and netloc
-        - Strips default ports (:80 for http, :443 for https)
-        - Strips trailing DNS dots from hostname
-        - Alphabetically sorts query parameters
-        - Ensures standard root path
-        """
         url = url.strip()
         if not url.startswith(("http://", "https://")):
             url = "http://" + url
@@ -129,7 +120,6 @@ class URLValidator:
         scheme = parts.scheme.lower()
         netloc = parts.netloc.lower()
 
-        # Handle port & trailing dot in netloc
         if ":" in netloc:
             host, port_str = netloc.rsplit(":", 1)
             host = host.rstrip(".")
@@ -140,24 +130,22 @@ class URLValidator:
         else:
             netloc = netloc.rstrip(".")
 
-        # Normalize path
         path = parts.path or "/"
         path = re.sub(r"/{2,}", "/", path)
 
-        # Sort query parameters alphabetically
         query = ""
         if parts.query:
             params = parse_qsl(parts.query, keep_blank_values=True)
             params.sort(key=lambda x: (x[0], x[1]))
             query = urlencode(params)
 
-        # Rebuild without fragment
         return urlunsplit((scheme, netloc, path, query, ""))
+
 
 class ScopeEvaluator:
     """
     Evaluates whether discovered hosts or URLs are in-scope or out-of-scope.
-    Strictly enforces deny-over-allow precedence and wildcard boundaries.
+    Strictly enforces deny-over-allow precedence and flexible wildcard boundaries.
     """
 
     def __init__(self, in_scope: list[str], out_of_scope: list[str] | None = None):
@@ -169,9 +157,9 @@ class ScopeEvaluator:
     @staticmethod
     def match_pattern(target: str, pattern: str) -> bool:
         """
-        Check if target matches a domain pattern.
-        - Exact pattern ('example.com') matches 'example.com'
-        - Wildcard pattern ('*.example.com') matches 'sub.example.com' and 'a.b.example.com'
+        Check if target matches a domain pattern:
+        - Pattern 'example.com' matches 'example.com' and 'sub.example.com'
+        - Pattern '*.example.com' matches 'example.com', 'sub.example.com', and 'a.b.example.com'
         """
         target = DomainValidator.canonicalize(target)
         pattern = DomainValidator.canonicalize(pattern)
@@ -180,11 +168,14 @@ class ScopeEvaluator:
         if target == pattern:
             return True
 
-        # Wildcard match (*.example.com)
+        # Handle wildcard pattern (*.example.com)
         if pattern.startswith("*."):
-            base_domain = pattern[2:]
-            # Target must end with '.base_domain' (e.g. '.example.com')
-            return target.endswith("." + base_domain)
+            base = pattern[2:]
+            return target == base or target.endswith("." + base)
+
+        # Handle root domain pattern (example.com matches sub.example.com)
+        if target.endswith("." + pattern):
+            return True
 
         return False
 

@@ -22,7 +22,6 @@ def extract_root_domains(domains: Sequence[str]) -> list[str]:
         clean = d.strip()
         if not clean:
             continue
-        # Remove wildcard prefix (*.example.com -> example.com)
         if clean.startswith("*."):
             clean = clean[2:]
         canonical = DomainValidator.canonicalize(clean)
@@ -49,7 +48,7 @@ def run_subfinder(
     args = [
         "-dL", str(temp_targets_file),
         "-silent",
-        "-oJ",
+        "-json",
         "-c", str(concurrency),
     ]
 

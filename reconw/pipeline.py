@@ -9,7 +9,9 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
+
+from rich.console import Console
 
 from reconw.report.generator import render_html_report
 from reconw.scope.loader import load_targets
@@ -20,6 +22,8 @@ from reconw.stages.katana import run_katana
 from reconw.stages.prioritize import EndpointScore, run_prioritize
 from reconw.stages.subfinder import run_subfinder
 from reconw.storage.repository import create_run, finish_run
+
+console = Console(highlight=False)
 
 
 @dataclass(slots=True)
@@ -69,6 +73,7 @@ def run_pipeline(
     enable_crawler: bool = True,
     generate_report: bool = True,
     reports_dir: Path | str = Path("reports"),
+    log_fn: Callable[[str], None] | None = None,
 ) -> PipelineSummary:
     """Executes the full 5-stage reconnaissance pipeline and generates an HTML report.
 
@@ -79,10 +84,17 @@ def run_pipeline(
         enable_crawler: Whether to run active shallow crawling (Katana).
         generate_report: Whether to generate a static HTML report at the end.
         reports_dir: Directory where the generated report will be saved.
+        log_fn: Optional logger function to report progress.
 
     Returns:
         PipelineSummary with execution metrics and report path.
     """
+    def log(msg: str) -> None:
+        if log_fn:
+            log_fn(msg)
+        else:
+            console.print(msg)
+
     t0 = time.perf_counter()
 
     # 1. Initialize Scope Evaluator & SQLite Run Record
@@ -97,48 +109,63 @@ def run_pipeline(
         # ==========================================================
         # STAGE 1: Subdomain Enumeration (Subfinder)
         # ==========================================================
+        log("[bold cyan][*] [Stage 1/5][/bold cyan] Discovering passive subdomains with [bold]Subfinder[/bold]...")
         subdomains = run_subfinder(
             in_scope_domains=targets.in_scope,
             run_id=run_id,
             scope_evaluator=evaluator,
         )
+        log(f"[bold green][+] Subfinder found {len(subdomains)} new in-scope subdomain(s)[/bold green]")
 
         combined_hosts = list(set(targets.in_scope + subdomains))
 
         # ==========================================================
         # STAGE 2: DNS Resolution (DNSx)
         # ==========================================================
+        log(f"[bold cyan][*] [Stage 2/5][/bold cyan] Resolving DNS records for {len(combined_hosts)} target(s) with [bold]DNSx[/bold]...")
         resolved_hosts = run_dnsx(
             hostnames=combined_hosts,
             run_id=run_id,
             scope_evaluator=evaluator,
         )
+        log(f"[bold green][+] DNSx resolved {len(resolved_hosts)} live host(s)[/bold green]")
 
         # ==========================================================
         # STAGE 3: HTTP Probing & Screenshots (HTTPx)
         # ==========================================================
         hosts_to_probe = resolved_hosts if resolved_hosts else combined_hosts
+        log(f"[bold cyan][*] [Stage 3/5][/bold cyan] Probing HTTP web services on {len(hosts_to_probe)} host(s) with [bold]HTTPx[/bold]...")
         live_endpoints = run_httpx(
             targets=hosts_to_probe,
             run_id=run_id,
             scope_evaluator=evaluator,
         )
+        log(f"[bold green][+] HTTPx discovered {len(live_endpoints)} active web endpoint(s)[/bold green]")
 
         # ==========================================================
         # STAGE 4: Shallow Crawling (Katana)
         # ==========================================================
         crawled_urls: list[str] = []
         if enable_crawler and live_endpoints:
+            log(f"[bold cyan][*] [Stage 4/5][/bold cyan] Actively crawling {len(live_endpoints)} live endpoint(s) with [bold]Katana[/bold]...")
             crawled_urls = run_katana(
                 seed_urls=live_endpoints,
                 run_id=run_id,
                 scope_evaluator=evaluator,
             )
+            log(f"[bold green][+] Katana crawled {len(crawled_urls)} endpoint(s) and API routes[/bold green]")
+        else:
+            log("[dim][*] [Stage 4/5] Skipping Katana crawler (no active HTTP endpoints or disabled)[/dim]")
 
         # ==========================================================
         # STAGE 5: Prioritization & Scoring Engine (Pure Python)
         # ==========================================================
+        log("[bold cyan][*] [Stage 5/5][/bold cyan] Calculating security priority scores...")
         scores: list[EndpointScore] = run_prioritize(run_id=run_id)
+
+        critical_count = sum(1 for s in scores if s.band == "Critical")
+        high_count = sum(1 for s in scores if s.band == "High")
+        log(f"[bold green][+] Prioritization complete: {critical_count} Critical, {high_count} High targets[/bold green]")
 
         # ==========================================================
         # STAGE 6: Generate HTML Report
@@ -151,8 +178,6 @@ def run_pipeline(
         finish_run(run_id, status="COMPLETED")
 
         duration = round(time.perf_counter() - t0, 2)
-        critical_count = sum(1 for s in scores if s.band == "Critical")
-        high_count = sum(1 for s in scores if s.band == "High")
 
         return PipelineSummary(
             run_id=run_id,

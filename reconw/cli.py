@@ -6,6 +6,7 @@ checking dependencies, and viewing past scan runs.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -28,13 +29,19 @@ cli = typer.Typer(
 )
 
 
+def slugify(text: str) -> str:
+    """Converts program name into a safe file slug (e.g. 'Bugcrowd - Tesla' -> 'bugcrowd_tesla')."""
+    slug = re.sub(r"[^a-zA-Z0-9_-]", "_", text.strip().lower())
+    return re.sub(r"_+", "_", slug).strip("_") or "reconw"
+
+
 @cli.command(name="run")
 def run_command(
     program_name: str = typer.Option(
         ...,
         "--program",
         "-p",
-        help="Target program or organization name (e.g. 'Uber', 'Shopify', 'Bugcrowd-XYZ')",
+        help="Target program or organization name (e.g. 'Uber', 'Shopify', 'SnapChat', 'Tiktok')",
     ),
     in_scope: Path = typer.Option(
         ...,
@@ -58,11 +65,11 @@ def run_command(
         readable=True,
         resolve_path=True,
     ),
-    db_path: Path = typer.Option(
-        Path("reconw.db"),
+    db_path: Optional[Path] = typer.Option(
+        None,
         "--db",
         "-d",
-        help="Path to SQLite database file",
+        help="Path to SQLite database file (default: <program_name>.db)",
         file_okay=True,
         dir_okay=False,
         resolve_path=True,
@@ -93,9 +100,14 @@ def run_command(
         console.print("[bold red][-] Error:[/bold red] Program name cannot be empty.")
         raise typer.Exit(code=1)
 
-    # 1. Initialize custom or default database
-    set_db_path(db_path)
-    init_db(db_path)
+    # 1. Determine database name (defaults to <program_slug>.db)
+    if db_path is None:
+        target_db = Path(f"{slugify(clean_prog)}.db")
+    else:
+        target_db = db_path
+
+    set_db_path(target_db)
+    init_db(target_db)
 
     # 2. Validate and load targets
     try:
@@ -115,31 +127,27 @@ def run_command(
             f"[bold white]Program Target:[/bold white] [bold yellow]{clean_prog}[/bold yellow]\n"
             f"[green]In-Scope Targets:[/green] {len(targets.in_scope)} domain(s)\n"
             f"[yellow]Out-of-Scope Exclusions:[/yellow] {len(targets.out_of_scope)} rule(s)\n"
-            f"[blue]Database Path:[/blue] {db_path}",
+            f"[blue]Database Path:[/blue] {target_db.resolve()}",
             title="[bold white]Starting Reconnaissance Run[/bold white]",
             border_style="cyan",
         )
     )
 
     # 4. Construct CLI args string for audit trail
-    args_str = f"reconw run -p \"{clean_prog}\" -i {in_scope}"
-    if out_of_scope:
-        args_str += f" -o {out_of_scope}"
-    args_str += f" -d {db_path}"
+    args_str = f"reconw run -p \"{clean_prog}\" -i {in_scope} -o {out_of_scope} -d {target_db}"
     if no_crawl:
         args_str += " --no-crawl"
 
-    # 5. Execute Pipeline
+    # 5. Execute Pipeline with Live Stage Output
     try:
-        with console.status(f"[bold cyan]Executing recon pipeline for '{clean_prog}'...[/bold cyan]", spinner="dots"):
-            summary = run_pipeline(
-                program_name=clean_prog,
-                targets=targets,
-                cli_args=args_str,
-                enable_crawler=not no_crawl,
-                generate_report=not no_report,
-                reports_dir=reports_dir,
-            )
+        summary = run_pipeline(
+            program_name=clean_prog,
+            targets=targets,
+            cli_args=args_str,
+            enable_crawler=not no_crawl,
+            generate_report=not no_report,
+            reports_dir=reports_dir,
+        )
 
         # 6. Print Execution Results Summary Table
         table = Table(title=f"Run #{summary.run_id} Results Summary — {clean_prog}", border_style="cyan")
@@ -159,7 +167,7 @@ def run_command(
         console.print(f"[bold green][+] Run #{summary.run_id} for '{clean_prog}' completed successfully![/bold green]")
         if summary.report_path and summary.report_path.exists():
             console.print(f"[bold cyan][+] HTML Report generated:[/bold cyan] [underline]{summary.report_path.resolve()}[/underline]")
-        console.print(f"[blue][+] Database updated:[/blue] {db_path.resolve()}\n")
+        console.print(f"[blue][+] Database saved:[/blue] {target_db.resolve()}\n")
 
     except Exception as exc:
         console.print(f"[bold red][!] Pipeline Failed:[/bold red] {exc}")
@@ -230,45 +238,58 @@ def doctor_command() -> None:
     if all_present:
         console.print("\n[bold green][+] All required external tools are installed and available in PATH![/bold green]")
     else:
-        console.print("\n[bold yellow][!] Note: Missing tools can be installed via Go (go install github.com/projectdiscovery/<tool>/cmd/<tool>@latest).[/bold yellow]")
+        console.print("\n[bold yellow][!] Note: On Kali Linux, install missing tools via 'sudo apt install -y subfinder httpx-toolkit' or Go.[/bold yellow]")
 
 
 @cli.command(name="list-runs")
 def list_runs_command(
-    db_path: Path = typer.Option(
-        Path("reconw.db"),
+    db_path: Optional[Path] = typer.Option(
+        None,
         "--db",
         "-d",
-        help="Path to SQLite database file",
+        help="Path to SQLite database file (default: searches local *.db files)",
     ),
 ) -> None:
     """List historical reconnaissance runs from the SQLite database."""
-    set_db_path(db_path)
-    init_db(db_path)
+    if db_path:
+        db_files = [db_path]
+    else:
+        # Search current working directory for *.db files
+        db_files = sorted(Path(".").glob("*.db"))
+        if not db_files:
+            console.print("[yellow]No database files (*.db) found in current directory.[/yellow]")
+            return
 
-    conn = get_connection(db_path)
-    cursor = conn.execute("SELECT id, program_name, started_at, finished_at, status, cli_args FROM run ORDER BY id DESC")
-    rows = cursor.fetchall()
-    conn.close()
+    for db_file in db_files:
+        if not db_file.exists():
+            continue
 
-    if not rows:
-        console.print(f"[yellow]No runs found in database: {db_path}[/yellow]")
-        return
+        set_db_path(db_file)
+        init_db(db_file)
 
-    table = Table(title=f"Historical Runs ({db_path})", border_style="cyan")
-    table.add_column("ID", justify="right", style="bold white")
-    table.add_column("Program", style="bold yellow")
-    table.add_column("Started At", style="dim")
-    table.add_column("Finished At", style="dim")
-    table.add_column("Status", justify="center")
-    table.add_column("CLI Command", style="cyan")
+        conn = get_connection(db_file)
+        cursor = conn.execute("SELECT id, program_name, started_at, finished_at, status, cli_args FROM run ORDER BY id DESC")
+        rows = cursor.fetchall()
+        conn.close()
 
-    for r in rows:
-        prog = r[1] or "Unknown"
-        status_style = "[bold green]COMPLETED[/bold green]" if r[4] == "COMPLETED" else f"[bold yellow]{r[4]}[/bold yellow]"
-        table.add_row(str(r[0]), str(prog), str(r[2] or ""), str(r[3] or "In Progress"), status_style, str(r[5] or ""))
+        if not rows:
+            continue
 
-    console.print(table)
+        table = Table(title=f"Historical Runs ({db_file.name})", border_style="cyan")
+        table.add_column("ID", justify="right", style="bold white")
+        table.add_column("Program", style="bold yellow")
+        table.add_column("Started At", style="dim")
+        table.add_column("Finished At", style="dim")
+        table.add_column("Status", justify="center")
+        table.add_column("CLI Command", style="cyan")
+
+        for r in rows:
+            prog = r[1] or "Unknown"
+            status_style = "[bold green]COMPLETED[/bold green]" if r[4] == "COMPLETED" else f"[bold yellow]{r[4]}[/bold yellow]"
+            table.add_row(str(r[0]), str(prog), str(r[2] or ""), str(r[3] or "In Progress"), status_style, str(r[5] or ""))
+
+        console.print(table)
+        console.print()
 
 
 if __name__ == "__main__":
