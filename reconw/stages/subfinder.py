@@ -15,6 +15,7 @@ from reconw.scope.validator import DomainValidator, ScopeEvaluator
 from reconw.storage.repository import upsert_asset
 from reconw.tools.parser import SubfinderAsset, parse_subfinder_output
 from reconw.tools.runner import resolve_tool_binary, run_tool, write_temp_targets
+from reconw.utils.canonical import canonicalize_hostname
 
 console = Console(highlight=False)
 
@@ -28,9 +29,13 @@ def extract_root_domains(domains: Sequence[str]) -> list[str]:
             continue
         if clean.startswith("*."):
             clean = clean[2:]
-        canonical = DomainValidator.canonicalize(clean)
-        if canonical:
-            roots.add(canonical)
+        _, root_domain, _ = canonicalize_hostname(clean)
+        if root_domain:
+            roots.add(root_domain)
+        else:
+            canonical = DomainValidator.canonicalize(clean)
+            if canonical:
+                roots.add(canonical)
     return sorted(roots)
 
 
@@ -74,7 +79,7 @@ def run_subfinder(
     finally:
         temp_targets_file.unlink(missing_ok=True)
 
-    console.print(f"[dim][DEBUG subfinder][/dim] Exit code: {result.exit_code}, Output length: {len(result.stdout)} bytes, Stderr length: {len(result.stderr)} bytes")
+    console.print(f"[dim][DEBUG subfinder][/dim] Exit code: {result.exit_code}, Output length: {len(result.stdout)} bytes")
     if result.stderr and result.exit_code != 0:
         console.print(f"[bold red][DEBUG subfinder stderr][/bold red] {result.stderr.strip()[:300]}")
 

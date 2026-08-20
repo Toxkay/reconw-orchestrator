@@ -74,34 +74,56 @@ class ToolExecutionResult:
         return self.stdout
 
 
+def _is_pd_httpx(binary_path: str) -> bool:
+    """Verifies that the binary is ProjectDiscovery httpx, not Python httpx."""
+    try:
+        res = subprocess.run(
+            [binary_path, "-version"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            shell=False,
+            errors="replace",
+        )
+        combined = ((res.stdout or "") + (res.stderr or "")).lower()
+        if "projectdiscovery" in combined or "current version" in combined:
+            return True
+        if "usage: httpx [options] url" in combined or "no such option" in combined:
+            return False
+        return res.returncode == 0
+    except Exception:
+        return False
+
+
 def resolve_tool_binary(tool_name: str) -> str | None:
-    """Resolves binary name or path, checking system PATH, ~/go/bin, and Kali aliases."""
-    # Check standard PATH first
-    path = shutil.which(tool_name)
-    if path:
-        return path
-
-    # Check Kali Linux alias for httpx
-    if tool_name == "httpx":
-        kali_httpx = shutil.which("httpx-toolkit")
-        if kali_httpx:
-            return kali_httpx
-
-    # Check ~/go/bin or %USERPROFILE%\go\bin if not in PATH
+    """Resolves the correct binary path, prioritizing ~/go/bin and handling Kali's httpx-toolkit."""
     home_dir = Path.home()
     go_bin = home_dir / "go" / "bin"
+
+    # 1. Check ~/go/bin first (most common for Go tools)
     if go_bin.exists():
         candidates = [go_bin / tool_name]
         if os.name == "nt":
             candidates.append(go_bin / f"{tool_name}.exe")
-        if tool_name == "httpx":
-            candidates.append(go_bin / "httpx-toolkit")
-            if os.name == "nt":
-                candidates.append(go_bin / "httpx-toolkit.exe")
+        for c in candidates:
+            if c.exists() and c.is_file():
+                return str(c)
 
-        for candidate in candidates:
-            if candidate.exists() and candidate.is_file():
-                return str(candidate)
+    # 2. For httpx, handle Kali Linux httpx-toolkit alias & avoid Python httpx
+    if tool_name == "httpx":
+        kali_toolkit = shutil.which("httpx-toolkit")
+        if kali_toolkit:
+            return kali_toolkit
+
+        std_httpx = shutil.which("httpx")
+        if std_httpx:
+            if _is_pd_httpx(std_httpx):
+                return std_httpx
+
+    # 3. Standard system PATH lookup
+    path = shutil.which(tool_name)
+    if path:
+        return path
 
     return None
 
