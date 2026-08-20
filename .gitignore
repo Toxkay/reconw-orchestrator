@@ -1,10 +1,44 @@
-recon.db
-*.db
-*.sqlite3
-artifacts/
-output/
-
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
-.pytest_cache/
+*$py.class
+
+# SQLite Databases & Local Scan Data
+*.db
+*.sqlite
+*.sqlite3
+recon.db
+reconw.db
+
+# Generated Artifacts & Reports
+reports/
+screenshots/
+artifacts/
+output/
+recon_*_*.txt
+
+# Virtual Environments
 .venv/
+env/
+venv/
+ENV/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build & Packaging
+dist/
+build/
+*.egg-info/
+
+# IDE & Editor Configs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
