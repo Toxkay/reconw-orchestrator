@@ -53,6 +53,13 @@ def run_httpx(
     console.print(f"[dim][DEBUG httpx][/dim] Binary resolved: [cyan]{binary_path}[/cyan]")
     console.print(f"[dim][DEBUG httpx][/dim] Probing targets count: {len(clean_targets)} hosts (e.g. {', '.join(clean_targets[:5])})")
 
+    # DEBUG DUMP 1: Input file
+    try:
+        Path("debug_httpx_input.txt").write_text("\n".join(clean_targets) + "\n", encoding="utf-8")
+        console.print(f"[bold yellow][DEBUG DUMP][/bold yellow] Saved HTTPx input targets to [bold green]debug_httpx_input.txt[/bold green] ({len(clean_targets)} hosts)")
+    except Exception:
+        pass
+
     # Ensure screenshots folder exists
     srd_path = Path(screenshots_dir)
     srd_path.mkdir(parents=True, exist_ok=True)
@@ -83,14 +90,16 @@ def run_httpx(
     finally:
         temp_targets_file.unlink(missing_ok=True)
 
+    # DEBUG DUMP 2: Raw output file
+    try:
+        Path("debug_httpx_raw_output.txt").write_text(result.stdout, encoding="utf-8")
+        console.print(f"[bold yellow][DEBUG DUMP][/bold yellow] Saved HTTPx raw output to [bold green]debug_httpx_raw_output.txt[/bold green] ({len(result.stdout)} bytes)")
+    except Exception:
+        pass
+
     console.print(f"[dim][DEBUG httpx][/dim] Exit code: {result.exit_code}, Output length: {len(result.stdout)} bytes, Stderr length: {len(result.stderr)} bytes")
     if result.stderr:
         console.print(f"[bold red][DEBUG httpx stderr][/bold red] {result.stderr.strip()[:400]}")
-
-    if result.stdout:
-        console.print(f"[dim][DEBUG httpx sample stdout][/dim] {result.stdout.strip().splitlines()[0][:200]}")
-    else:
-        console.print("[dim][DEBUG httpx][/dim] Warning: HTTPx stdout was empty.")
 
     # Parse stdout/raw NDJSON output into HttpxEndpoint objects
     endpoints: list[HttpxEndpoint] = parse_httpx_output(result.stdout)
@@ -98,46 +107,51 @@ def run_httpx(
 
     live_urls: list[str] = []
     seen: set[str] = set()
-    filtered_out = 0
 
-    for item in endpoints:
-        url = item.url
-        if url in seen:
+    for ep in endpoints:
+        url = ep.url
+        if not url or url in seen:
             continue
 
-        # Enforce scope guardrails
-        if scope_evaluator and not scope_evaluator.is_in_scope(item.hostname):
-            filtered_out += 1
+        # Enforce scope guardrails on HTTP endpoints
+        hostname = ep.hostname
+        if scope_evaluator and hostname and not scope_evaluator.is_in_scope(hostname):
             continue
 
         seen.add(url)
         live_urls.append(url)
 
-        # Get or create the parent asset ID in the database
-        _, root_domain, canonical_key = canonicalize_hostname(item.hostname)
-        asset_id = upsert_asset(
-            canonical_key=canonical_key,
-            hostname=item.hostname,
-            root_domain=root_domain,
-            run_id=run_id,
-            tool_result_id=result.tool_result_id,
-        )
+        # Upsert parent asset in SQLite
+        asset_id = 0
+        if hostname:
+            _, root_domain, canonical_key = canonicalize_hostname(hostname)
+            asset_id = upsert_asset(
+                canonical_key=canonical_key,
+                hostname=hostname,
+                root_domain=root_domain,
+                run_id=run_id,
+                tool_result_id=result.tool_result_id,
+            )
 
-        # Persist endpoint record in SQLite
+        # Record HTTP endpoint into SQLite table
         insert_endpoint(
             run_id=run_id,
             asset_id=asset_id,
-            url=item.url,
-            dedup_key=item.dedup_key,
-            status_code=item.status_code,
-            content_length=item.content_length,
-            title=item.title,
-            tech_stack_json=json.dumps(item.tech_stack),
-            screenshot_path=item.screenshot_path,
+            url=ep.url,
+            dedup_key=ep.dedup_key,
+            status_code=ep.status_code,
+            content_length=ep.content_length,
+            title=ep.title,
+            tech_stack_json=json.dumps(ep.tech_stack),
+            screenshot_path="",
             source_tool_result_id=result.tool_result_id,
         )
 
-    if filtered_out > 0:
-        console.print(f"[dim][DEBUG httpx][/dim] {filtered_out} endpoints were filtered out by scope.")
+    # DEBUG DUMP 3: Filtered output file
+    try:
+        Path("debug_httpx_filtered_output.txt").write_text("\n".join(live_urls) + "\n", encoding="utf-8")
+        console.print(f"[bold yellow][DEBUG DUMP][/bold yellow] Saved HTTPx filtered output to [bold green]debug_httpx_filtered_output.txt[/bold green] ({len(live_urls)} endpoints)")
+    except Exception:
+        pass
 
     return live_urls

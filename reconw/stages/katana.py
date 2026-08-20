@@ -55,6 +55,13 @@ def run_katana(
     console.print(f"[dim][DEBUG katana][/dim] Binary resolved: [cyan]{binary_path}[/cyan]")
     console.print(f"[dim][DEBUG katana][/dim] Seed URLs count: {len(clean_seeds)} (e.g. {', '.join(clean_seeds[:3])})")
 
+    # DEBUG DUMP 1: Input file
+    try:
+        Path("debug_katana_input.txt").write_text("\n".join(clean_seeds) + "\n", encoding="utf-8")
+        console.print(f"[bold yellow][DEBUG DUMP][/bold yellow] Saved Katana input targets to [bold green]debug_katana_input.txt[/bold green] ({len(clean_seeds)} seeds)")
+    except Exception:
+        pass
+
     temp_seeds_file = write_temp_targets(clean_seeds, prefix="recon_katana_seeds_")
 
     # Create temporary output file so Katana streams output to disk continuously
@@ -65,13 +72,6 @@ def run_katana(
     # Calculate dynamic stage timeout scaled for mass target lists (minimum 20 minutes)
     effective_timeout = max(timeout, min(3600, len(clean_seeds) * 2))
 
-    # Katana flags optimized for high-performance & resilience on mass target lists:
-    # -u / -list: Target seed URLs file
-    # -o: File output to stream results to disk continuously (prevents loss on timeout)
-    # -j / -jsonl: JSON Lines output
-    # -jc: Enable JavaScript endpoint crawling
-    # -ct 1m: Max crawl duration per target (1 minute cap per target)
-    # -or / -ob: Omit raw requests/responses & body to keep RAM tiny (<5MB vs 800MB)
     args = [
         "-u", str(temp_seeds_file),
         "-o", str(temp_out_path),
@@ -100,7 +100,7 @@ def run_katana(
     finally:
         temp_seeds_file.unlink(missing_ok=True)
 
-    # Read output from temp output file or stdout (preserves crawled items even if timed out)
+    # Read output from temp output file or stdout
     raw_output = ""
     if temp_out_path.exists():
         try:
@@ -111,6 +111,13 @@ def run_katana(
 
     if not raw_output and result.stdout:
         raw_output = result.stdout
+
+    # DEBUG DUMP 2: Raw output file
+    try:
+        Path("debug_katana_raw_output.txt").write_text(raw_output, encoding="utf-8")
+        console.print(f"[bold yellow][DEBUG DUMP][/bold yellow] Saved Katana raw output to [bold green]debug_katana_raw_output.txt[/bold green] ({len(raw_output)} bytes)")
+    except Exception:
+        pass
 
     console.print(f"[dim][DEBUG katana][/dim] Exit code: {result.exit_code}, Disk output length: {len(raw_output)} bytes")
     if result.stderr and result.exit_code not in (0, 124):
@@ -151,5 +158,12 @@ def run_katana(
             dedup_key=item.dedup_key,
             source_tool_result_id=result.tool_result_id or 0,
         )
+
+    # DEBUG DUMP 3: Filtered output file
+    try:
+        Path("debug_katana_filtered_output.txt").write_text("\n".join(discovered_urls) + "\n", encoding="utf-8")
+        console.print(f"[bold yellow][DEBUG DUMP][/bold yellow] Saved Katana filtered output to [bold green]debug_katana_filtered_output.txt[/bold green] ({len(discovered_urls)} URLs)")
+    except Exception:
+        pass
 
     return discovered_urls
