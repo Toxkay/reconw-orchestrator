@@ -39,7 +39,9 @@ def run_katana(
     run_id: int,
     scope_evaluator: ScopeEvaluator | None = None,
     depth: int = 2,
-    rate_limit: int = 10,
+    rate_limit: int = 150,
+    concurrency: int = 20,
+    crawl_duration: int = 120,
     timeout: int = 600,
     retries: int = 0,
 ) -> list[str]:
@@ -59,7 +61,9 @@ def run_katana(
         "-silent",
         "-j",
         "-d", str(depth),
+        "-c", str(concurrency),
         "-rl", str(rate_limit),
+        "-ct", str(crawl_duration),
         "-jc",
     ]
 
@@ -74,7 +78,8 @@ def run_katana(
             retries=retries,
         )
     finally:
-        temp_seeds_file.unlink(missing_ok=True)
+        temp_targets_file = temp_seeds_file
+        temp_targets_file.unlink(missing_ok=True)
 
     console.print(f"[dim][DEBUG katana][/dim] Exit code: {result.exit_code}, Output length: {len(result.stdout)} bytes")
     if result.stderr and result.exit_code != 0:
@@ -98,7 +103,6 @@ def run_katana(
             parsed = urlparse(url)
             hostname = parsed.hostname or ""
         except Exception:
-            # Fallback for malformed URLs
             clean_host = url.split("://")[-1].split("/")[0].split("?")[0].split(":")[0].strip("[]")
             hostname = clean_host
 
