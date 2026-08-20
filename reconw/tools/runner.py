@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -73,34 +74,63 @@ class ToolExecutionResult:
         return self.stdout
 
 
+def resolve_tool_binary(tool_name: str) -> str | None:
+    """Resolves binary name or path, checking system PATH, ~/go/bin, and Kali aliases."""
+    # Check standard PATH first
+    path = shutil.which(tool_name)
+    if path:
+        return path
+
+    # Check Kali Linux alias for httpx
+    if tool_name == "httpx":
+        kali_httpx = shutil.which("httpx-toolkit")
+        if kali_httpx:
+            return kali_httpx
+
+    # Check ~/go/bin or %USERPROFILE%\go\bin if not in PATH
+    home_dir = Path.home()
+    go_bin = home_dir / "go" / "bin"
+    if go_bin.exists():
+        candidates = [go_bin / tool_name]
+        if os.name == "nt":
+            candidates.append(go_bin / f"{tool_name}.exe")
+        if tool_name == "httpx":
+            candidates.append(go_bin / "httpx-toolkit")
+            if os.name == "nt":
+                candidates.append(go_bin / "httpx-toolkit.exe")
+
+        for candidate in candidates:
+            if candidate.exists() and candidate.is_file():
+                return str(candidate)
+
+    return None
+
+
 def is_tool_available(tool_name: str) -> bool:
-    """Check if an external binary is available in the system's PATH."""
-    return shutil.which(tool_name) is not None
+    """Check if an external binary is available in PATH or ~/go/bin."""
+    return resolve_tool_binary(tool_name) is not None
 
 
 def require_tool(tool_name: str) -> str:
-    """Validate that a tool binary exists in PATH and return its absolute path.
-    
-    Raises:
-        ToolNotFoundError: If the binary is not found.
-    """
-    path = shutil.which(tool_name)
-    if not path:
+    """Validate that a tool binary exists and return its resolved path."""
+    resolved = resolve_tool_binary(tool_name)
+    if not resolved:
         raise ToolNotFoundError(
             f"External tool '{tool_name}' is not installed or not found in system PATH."
         )
-    return path
+    return resolved
 
 
 def get_tool_version(tool_name: str, timeout: int = 5) -> str:
     """Safely attempts to query the tool's version string."""
-    if not is_tool_available(tool_name):
+    binary = resolve_tool_binary(tool_name)
+    if not binary:
         return ""
 
     for flag in ["-version", "--version", "version", "-v"]:
         try:
             res = subprocess.run(
-                [tool_name, flag],
+                [binary, flag],
                 capture_output=True,
                 text=True,
                 timeout=timeout,
@@ -114,7 +144,7 @@ def get_tool_version(tool_name: str, timeout: int = 5) -> str:
         except (subprocess.SubprocessError, OSError):
             continue
 
-    return ""
+    return "installed"
 
 
 def write_temp_targets(
@@ -122,16 +152,7 @@ def write_temp_targets(
     prefix: str = "recon_targets_",
     dir: Path | str | None = None
 ) -> Path:
-    """Writes a collection of target strings into a temporary file.
-
-    Args:
-        targets: Collection of domain/hostname/URL targets.
-        prefix: Prefix for the temporary file name.
-        dir: Directory to place the temp file (defaults to system temp).
-
-    Returns:
-        Path to the created temporary file.
-    """
+    """Writes a collection of target strings into a temporary file."""
     tmp = tempfile.NamedTemporaryFile(
         mode="w",
         prefix=prefix,
@@ -149,19 +170,19 @@ def write_temp_targets(
 
 
 class ToolRunner:
-    """Engine responsible for safe execution of external reconnaissance CLI binaries."""
+    """Engine for executing external recon binaries with timeout and audit logging."""
 
     def __init__(
         self,
-        artifacts_dir: Path | str = Path("artifacts"),
         default_timeout: int = 300,
-        default_retries: int = 0,
+        default_retries: int = 1,
         retry_backoff: float = 2.0,
-    ) -> None:
-        self.artifacts_dir = Path(artifacts_dir)
+        artifacts_dir: Path | str = Path("artifacts"),
+    ):
         self.default_timeout = default_timeout
         self.default_retries = default_retries
         self.retry_backoff = retry_backoff
+        self.artifacts_dir = Path(artifacts_dir)
 
     def run(
         self,
@@ -171,16 +192,16 @@ class ToolRunner:
         run_id: int | None = None,
         timeout: int | None = None,
         retries: int | None = None,
-        env: dict[str, str] | None = None,
-        cwd: Path | str | None = None,
         raw_output_path: Path | None = None,
         save_stdout_as_artifact: bool = False,
+        env: dict[str, str] | None = None,
+        cwd: Path | str | None = None,
     ) -> ToolExecutionResult:
-        """Executes an external security tool binary safely."""
-        # 1. Verify binary is installed
-        if not is_tool_available(tool_name):
+        """Executes the external tool safely without shell=True."""
+        binary_path = resolve_tool_binary(tool_name)
+        if not binary_path:
             now = utc_now()
-            err_msg = f"Binary '{tool_name}' was not found in system PATH."
+            err_msg = f"Binary '{tool_name}' was not found in system PATH or ~/go/bin."
             result = ToolExecutionResult(
                 tool_name=tool_name,
                 command=[tool_name, *args],
@@ -196,7 +217,7 @@ class ToolRunner:
             self._log_provenance(result, stage_name, run_id)
             return result
 
-        full_command = [tool_name, *args]
+        full_command = [binary_path, *args]
         effective_timeout = timeout if timeout is not None else self.default_timeout
         max_attempts = 1 + max(0, retries if retries is not None else self.default_retries)
 
@@ -212,7 +233,6 @@ class ToolRunner:
             error_message: str | None = None
 
             try:
-                # 2. Execute safely without shell=True
                 proc = subprocess.run(
                     full_command,
                     capture_output=True,
@@ -226,16 +246,18 @@ class ToolRunner:
                 exit_code = proc.returncode
                 stdout_str = proc.stdout or ""
                 stderr_str = proc.stderr or ""
+                if exit_code != 0 and stderr_str:
+                    error_message = stderr_str.strip().splitlines()[-1][:200]
 
             except subprocess.TimeoutExpired as exc:
-                exit_code = 124  # Standard timeout exit code
+                exit_code = 124
                 stdout_str = (exc.stdout or "") if isinstance(exc.stdout, str) else ""
                 stderr_str = (exc.stderr or "") if isinstance(exc.stderr, str) else ""
                 error_message = f"Process timed out after {effective_timeout} seconds (attempt {attempt}/{max_attempts})."
 
             except FileNotFoundError:
                 exit_code = 127
-                error_message = f"Executable not found: {tool_name}"
+                error_message = f"Executable not found: {binary_path}"
 
             except OSError as exc:
                 exit_code = 1
@@ -244,12 +266,10 @@ class ToolRunner:
             duration_seconds = round(time.perf_counter() - t0, 3)
             finished_at = utc_now()
 
-            # 3. Handle artifacts storage if configured
             final_raw_path = raw_output_path
             if save_stdout_as_artifact and stdout_str and not final_raw_path:
                 final_raw_path = self._save_stdout_artifact(stage_name, tool_name, stdout_str)
 
-            # 4. Count items if output exists
             item_count = 0
             if final_raw_path and final_raw_path.exists():
                 try:
@@ -275,22 +295,18 @@ class ToolRunner:
                 error_message=error_message,
             )
 
-            # If successful, no need to retry
             if last_result.is_success:
                 break
 
-            # If retries remain, back off before next attempt
             if attempt < max_attempts:
                 time.sleep(self.retry_backoff)
 
-        # 5. Log provenance to DB
         assert last_result is not None
         self._log_provenance(last_result, stage_name, run_id)
 
         return last_result
 
     def _save_stdout_artifact(self, stage_name: str, tool_name: str, stdout: str) -> Path:
-        """Persists raw stdout capture into the artifacts directory."""
         stage_artifacts_dir = self.artifacts_dir / stage_name
         stage_artifacts_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
@@ -304,7 +320,6 @@ class ToolRunner:
         stage_name: str,
         run_id: int | None
     ) -> None:
-        """Writes execution record into SQLite tool_result table."""
         if run_id is None:
             return
 
@@ -331,7 +346,6 @@ class ToolRunner:
                 result.error_message = f"DB logging error: {exc}"
 
 
-# Standalone runner instance for direct module invocation
 default_runner = ToolRunner()
 
 
@@ -345,7 +359,6 @@ def run_tool(
     raw_output_path: Path | None = None,
     save_stdout_as_artifact: bool = False,
 ) -> ToolExecutionResult:
-    """Convenience functional wrapper for executing a security tool."""
     return default_runner.run(
         tool_name=tool_name,
         args=args,
@@ -355,4 +368,4 @@ def run_tool(
         retries=retries,
         raw_output_path=raw_output_path,
         save_stdout_as_artifact=save_stdout_as_artifact,
-    )
+    )

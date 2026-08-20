@@ -63,7 +63,7 @@ def run_httpx(
 
     temp_targets_file = write_temp_targets(clean_targets, prefix="recon_httpx_")
 
-    args = [
+    base_args = [
         "-l", str(temp_targets_file),
         "-silent",
         "-json",
@@ -71,19 +71,31 @@ def run_httpx(
         "-tech-detect",
         "-status-code",
         "-content-length",
-        "-screenshot",
-        "-srd", str(srd_path),
     ]
 
     try:
+        # First attempt with screenshots
+        screenshot_args = base_args + ["-screenshot", "-srd", str(srd_path)]
         result = run_tool(
             tool_name="httpx",
-            args=args,
+            args=screenshot_args,
             stage_name="http_probe",
             run_id=run_id,
             timeout=timeout,
             retries=retries,
         )
+
+        # If httpx failed (e.g. chromium missing on Linux), retry without -screenshot
+        if not result.stdout and result.exit_code != 0:
+            result = run_tool(
+                tool_name="httpx",
+                args=base_args,
+                stage_name="http_probe",
+                run_id=run_id,
+                timeout=timeout,
+                retries=retries,
+            )
+
     finally:
         temp_targets_file.unlink(missing_ok=True)
 
