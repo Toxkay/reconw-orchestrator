@@ -3,7 +3,7 @@ name = "reconw"
 version = "0.1.0"
 description = "Recon Pipeline Orchestrator"
 authors = [
-    {name = "Toxkay",email = "karenfadywork@gmail.com"}
+    {name = "Toxkay", email = "karenfadywork@gmail.com"}
 ]
 readme = "README.md"
 requires-python = ">=3.12"
@@ -15,8 +15,14 @@ dependencies = [
     "jinja2 (>=3.1.6,<4.0.0)"
 ]
 
+[project.scripts]
+reconw = "reconw.cli:cli"
+
 [tool.poetry]
 packages = [{include = "reconw"}]
+
+[tool.poetry.scripts]
+reconw = "reconw.cli:cli"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
@@ -26,7 +32,3 @@ build-backend = "poetry.core.masonry.api"
 dev = [
     "pytest (>=9.1.1,<10.0.0)"
 ]
-
-[tool.poetry.scripts]
-reconw = "reconw.cli:cli"
-
