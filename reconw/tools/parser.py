@@ -344,7 +344,11 @@ def parse_katana_output(
         if not raw_url:
             continue
 
-        normalized_url, dedup_key = canonicalize_url(raw_url)
+        try:
+            normalized_url, dedup_key = canonicalize_url(raw_url)
+        except Exception:
+            continue
+
         if dedup_key in seen_dedup:
             continue
 

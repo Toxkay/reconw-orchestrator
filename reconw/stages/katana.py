@@ -92,11 +92,17 @@ def run_katana(
         if url in seen:
             continue
 
-        # Extract hostname to verify against scope
-        parsed = urlparse(url)
-        hostname = parsed.hostname or ""
+        # Extract hostname safely without throwing on malformed IPv6 URLs
+        hostname = ""
+        try:
+            parsed = urlparse(url)
+            hostname = parsed.hostname or ""
+        except Exception:
+            # Fallback for malformed URLs
+            clean_host = url.split("://")[-1].split("/")[0].split("?")[0].split(":")[0].strip("[]")
+            hostname = clean_host
 
-        if scope_evaluator and not scope_evaluator.is_in_scope(hostname):
+        if scope_evaluator and hostname and not scope_evaluator.is_in_scope(hostname):
             continue
 
         seen.add(url)
