@@ -47,8 +47,8 @@ def run_command(
         readable=True,
         resolve_path=True,
     ),
-    out_of_scope: Optional[Path] = typer.Option(
-        None,
+    out_of_scope: Path = typer.Option(
+        ...,
         "--outscope",
         "-o",
         help="Path to out-of-scope targets text file (e.g. outscope.txt)",

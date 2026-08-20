@@ -55,10 +55,10 @@ def _validate_targets(targets: Sequence[str]) -> list[str]:
     return DomainValidator.remove_duplicates(validated)
 
 
-def build_targets(in_scope_file: Path, out_of_scope_file: Path | None = None) -> ReconTargets:
+def build_targets(in_scope_file: Path, out_of_scope_file: Path) -> ReconTargets:
     """Load and validate scope text files into normalized target lists."""
     in_targets = _validate_targets(load_targets(in_scope_file))
-    out_targets = _validate_targets(load_targets(out_of_scope_file)) if out_of_scope_file else []
+    out_targets = _validate_targets(load_targets(out_of_scope_file))
     return ReconTargets(in_scope=in_targets, out_of_scope=out_targets)
 
 

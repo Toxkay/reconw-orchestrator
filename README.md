@@ -68,7 +68,7 @@ reconw doctor
 ```
 
 ### 2. Run Full Reconnaissance
-Provide your target program name, in-scope targets file, and optional out-of-scope exclusions:
+Provide your target program name, in-scope targets file, and out-of-scope exclusions file:
 ```bash
 reconw run -p "Uber" -i inscope.txt -o outscope.txt
 ```
@@ -78,7 +78,7 @@ reconw run -p "Uber" -i inscope.txt -o outscope.txt
 | :--- | :--- | :--- |
 | `-p, --program` | **Required.** Target program / organization name (e.g. `"Uber"`) | — |
 | `-i, --inscope` | **Required.** Path to in-scope targets text file | — |
-| `-o, --outscope` | Path to out-of-scope exclusion rules file | `None` |
+| `-o, --outscope` | **Required.** Path to out-of-scope exclusion rules file | — |
 | `-d, --db` | SQLite database file location | `reconw.db` |
 | `-r, --reports-dir` | Directory to save generated HTML reports | `reports/` |
 | `--no-crawl` | Skip Stage 4 active crawling (Katana) | `False` |
