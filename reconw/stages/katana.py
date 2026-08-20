@@ -10,11 +10,15 @@ from pathlib import Path
 from typing import Sequence
 from urllib.parse import urlparse
 
+from rich.console import Console
+
 from reconw.scope.validator import ScopeEvaluator
 from reconw.storage.repository import insert_url_item
 from reconw.tools.parser import KatanaUrlItem, parse_katana_output
-from reconw.tools.runner import run_tool, write_temp_targets
+from reconw.tools.runner import resolve_tool_binary, run_tool, write_temp_targets
 from reconw.utils.canonical import canonicalize_url
+
+console = Console(highlight=False)
 
 
 def clean_seed_urls(urls: Sequence[str]) -> list[str]:
@@ -39,23 +43,14 @@ def run_katana(
     timeout: int = 600,
     retries: int = 0,
 ) -> list[str]:
-    """Executes the Katana crawler stage.
-
-    Args:
-        seed_urls: Live HTTP(S) endpoint URLs from Stage 3 (HTTPx).
-        run_id: Current pipeline run identifier.
-        scope_evaluator: Optional evaluator to enforce scope boundaries.
-        depth: Crawl depth limit (default: 2).
-        rate_limit: Maximum requests per second (default: 10).
-        timeout: Subprocess execution timeout in seconds.
-        retries: Number of retry attempts on failure.
-
-    Returns:
-        List of unique, discovered endpoint URLs.
-    """
     clean_seeds = clean_seed_urls(seed_urls)
     if not clean_seeds:
+        console.print("[dim][DEBUG katana][/dim] No seed URLs provided for crawling.")
         return []
+
+    binary_path = resolve_tool_binary("katana")
+    console.print(f"[dim][DEBUG katana][/dim] Binary resolved: [cyan]{binary_path}[/cyan]")
+    console.print(f"[dim][DEBUG katana][/dim] Seed URLs count: {len(clean_seeds)} (e.g. {', '.join(clean_seeds[:3])})")
 
     temp_seeds_file = write_temp_targets(clean_seeds, prefix="recon_katana_")
 
@@ -65,10 +60,11 @@ def run_katana(
         "-j",
         "-d", str(depth),
         "-rl", str(rate_limit),
-        "-jc",  # JavaScript crawl support
+        "-jc",
     ]
 
     try:
+        console.print(f"[dim][DEBUG katana][/dim] Running command: `{' '.join([str(binary_path)] + args)}`")
         result = run_tool(
             tool_name="katana",
             args=args,
@@ -80,8 +76,13 @@ def run_katana(
     finally:
         temp_seeds_file.unlink(missing_ok=True)
 
+    console.print(f"[dim][DEBUG katana][/dim] Exit code: {result.exit_code}, Output length: {len(result.stdout)} bytes")
+    if result.stderr and result.exit_code != 0:
+        console.print(f"[bold red][DEBUG katana stderr][/bold red] {result.stderr.strip()[:300]}")
+
     # Parse stdout/raw NDJSON output into KatanaUrlItem objects
     crawled_items: list[KatanaUrlItem] = parse_katana_output(result.stdout)
+    console.print(f"[dim][DEBUG katana][/dim] Parsed {len(crawled_items)} crawled items from output")
 
     discovered_urls: list[str] = []
     seen: set[str] = set()

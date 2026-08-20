@@ -10,11 +10,15 @@ import json
 from pathlib import Path
 from typing import Sequence
 
+from rich.console import Console
+
 from reconw.scope.validator import ScopeEvaluator
 from reconw.storage.repository import insert_endpoint, upsert_asset
 from reconw.tools.parser import HttpxEndpoint, parse_httpx_output
-from reconw.tools.runner import run_tool, write_temp_targets
+from reconw.tools.runner import resolve_tool_binary, run_tool, write_temp_targets
 from reconw.utils.canonical import canonicalize_hostname
+
+console = Console(highlight=False)
 
 
 def extract_targets(targets: Sequence[str]) -> list[str]:
@@ -40,22 +44,14 @@ def run_httpx(
     timeout: int = 600,
     retries: int = 1,
 ) -> list[str]:
-    """Executes the HTTPX probing stage.
-
-    Args:
-        targets: Resolved live hostnames from Stage 2 (DNSx).
-        run_id: Current pipeline run identifier.
-        scope_evaluator: Optional evaluator to enforce scope rules.
-        screenshots_dir: Directory where screenshots will be stored.
-        timeout: Execution timeout in seconds.
-        retries: Number of retry attempts on failure.
-
-    Returns:
-        List of live, reachable HTTP(S) URLs.
-    """
     clean_targets = extract_targets(targets)
     if not clean_targets:
+        console.print("[dim][DEBUG httpx][/dim] No targets provided for HTTP probing.")
         return []
+
+    binary_path = resolve_tool_binary("httpx")
+    console.print(f"[dim][DEBUG httpx][/dim] Binary resolved: [cyan]{binary_path}[/cyan]")
+    console.print(f"[dim][DEBUG httpx][/dim] Probing targets count: {len(clean_targets)} hosts (e.g. {', '.join(clean_targets[:5])})")
 
     # Ensure screenshots folder exists
     srd_path = Path(screenshots_dir)
@@ -74,36 +70,35 @@ def run_httpx(
     ]
 
     try:
-        # First attempt with screenshots
-        screenshot_args = base_args + ["-screenshot", "-srd", str(srd_path)]
+        console.print(f"[dim][DEBUG httpx][/dim] Running command: `{' '.join([str(binary_path)] + base_args)}`")
         result = run_tool(
             tool_name="httpx",
-            args=screenshot_args,
+            args=base_args,
             stage_name="http_probe",
             run_id=run_id,
             timeout=timeout,
             retries=retries,
         )
 
-        # If httpx failed (e.g. chromium missing on Linux), retry without -screenshot
-        if not result.stdout and result.exit_code != 0:
-            result = run_tool(
-                tool_name="httpx",
-                args=base_args,
-                stage_name="http_probe",
-                run_id=run_id,
-                timeout=timeout,
-                retries=retries,
-            )
-
     finally:
         temp_targets_file.unlink(missing_ok=True)
 
+    console.print(f"[dim][DEBUG httpx][/dim] Exit code: {result.exit_code}, Output length: {len(result.stdout)} bytes, Stderr length: {len(result.stderr)} bytes")
+    if result.stderr:
+        console.print(f"[bold red][DEBUG httpx stderr][/bold red] {result.stderr.strip()[:400]}")
+
+    if result.stdout:
+        console.print(f"[dim][DEBUG httpx sample stdout][/dim] {result.stdout.strip().splitlines()[0][:200]}")
+    else:
+        console.print("[dim][DEBUG httpx][/dim] Warning: HTTPx stdout was empty.")
+
     # Parse stdout/raw NDJSON output into HttpxEndpoint objects
     endpoints: list[HttpxEndpoint] = parse_httpx_output(result.stdout)
+    console.print(f"[dim][DEBUG httpx][/dim] Parsed {len(endpoints)} endpoint objects from output")
 
     live_urls: list[str] = []
     seen: set[str] = set()
+    filtered_out = 0
 
     for item in endpoints:
         url = item.url
@@ -112,6 +107,7 @@ def run_httpx(
 
         # Enforce scope guardrails
         if scope_evaluator and not scope_evaluator.is_in_scope(item.hostname):
+            filtered_out += 1
             continue
 
         seen.add(url)
@@ -140,5 +136,8 @@ def run_httpx(
             screenshot_path=item.screenshot_path,
             source_tool_result_id=result.tool_result_id,
         )
+
+    if filtered_out > 0:
+        console.print(f"[dim][DEBUG httpx][/dim] {filtered_out} endpoints were filtered out by scope.")
 
     return live_urls

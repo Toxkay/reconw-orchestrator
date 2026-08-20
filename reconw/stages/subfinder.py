@@ -9,10 +9,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Sequence
 
+from rich.console import Console
+
 from reconw.scope.validator import DomainValidator, ScopeEvaluator
 from reconw.storage.repository import upsert_asset
 from reconw.tools.parser import SubfinderAsset, parse_subfinder_output
-from reconw.tools.runner import run_tool, write_temp_targets
+from reconw.tools.runner import resolve_tool_binary, run_tool, write_temp_targets
+
+console = Console(highlight=False)
 
 
 def extract_root_domains(domains: Sequence[str]) -> list[str]:
@@ -40,7 +44,12 @@ def run_subfinder(
 ) -> list[str]:
     root_domains = extract_root_domains(in_scope_domains)
     if not root_domains:
+        console.print("[dim][DEBUG subfinder][/dim] No root domains to enumerate.")
         return []
+
+    binary_path = resolve_tool_binary("subfinder")
+    console.print(f"[dim][DEBUG subfinder][/dim] Binary resolved: [cyan]{binary_path}[/cyan]")
+    console.print(f"[dim][DEBUG subfinder][/dim] Target root domains ({len(root_domains)}): {', '.join(root_domains[:5])}{'...' if len(root_domains) > 5 else ''}")
 
     # Write target root domains to a temporary file for subfinder
     temp_targets_file = write_temp_targets(root_domains, prefix="recon_subfinder_")
@@ -53,6 +62,7 @@ def run_subfinder(
     ]
 
     try:
+        console.print(f"[dim][DEBUG subfinder][/dim] Running command: `{' '.join([str(binary_path)] + args)}`")
         result = run_tool(
             tool_name="subfinder",
             args=args,
@@ -64,11 +74,17 @@ def run_subfinder(
     finally:
         temp_targets_file.unlink(missing_ok=True)
 
+    console.print(f"[dim][DEBUG subfinder][/dim] Exit code: {result.exit_code}, Output length: {len(result.stdout)} bytes, Stderr length: {len(result.stderr)} bytes")
+    if result.stderr and result.exit_code != 0:
+        console.print(f"[bold red][DEBUG subfinder stderr][/bold red] {result.stderr.strip()[:300]}")
+
     # Parse stdout/raw NDJSON output into SubfinderAsset objects
     assets: list[SubfinderAsset] = parse_subfinder_output(result.stdout)
+    console.print(f"[dim][DEBUG subfinder][/dim] Parsed {len(assets)} raw subdomains from output")
 
     discovered_hostnames: list[str] = []
     seen: set[str] = set()
+    filtered_out_count = 0
 
     for asset in assets:
         hostname = asset.hostname
@@ -77,6 +93,7 @@ def run_subfinder(
 
         # Enforce scope guardrails
         if scope_evaluator and not scope_evaluator.is_in_scope(hostname):
+            filtered_out_count += 1
             continue
 
         seen.add(hostname)
@@ -90,5 +107,8 @@ def run_subfinder(
             run_id=run_id,
             tool_result_id=result.tool_result_id,
         )
+
+    if filtered_out_count > 0:
+        console.print(f"[dim][DEBUG subfinder][/dim] {filtered_out_count} subdomains were filtered out by scope rules.")
 
     return discovered_hostnames
