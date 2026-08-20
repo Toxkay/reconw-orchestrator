@@ -103,29 +103,3 @@ reconw report -r 1 -o my_report.html
 
 ---
 
-## Scope File Examples
-
-### `inscope.txt` (Targets)
-```text
-example.com
-*.example.com
-target-app.org
-```
-
-### `outscope.txt` (Exclusions)
-```text
-blog.example.com
-*.staging.example.com
-192.168.1.1
-```
-
----
-
-## Running Tests
-
-Execute the automated pytest suite:
-```bash
-pytest
-```
-
----
