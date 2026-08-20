@@ -55,15 +55,14 @@ def run_subfinder(
     console.print(f"[dim][DEBUG subfinder][/dim] Binary resolved: [cyan]{binary_path}[/cyan]")
     console.print(f"[dim][DEBUG subfinder][/dim] Target root domains ({len(root_domains)}): {', '.join(root_domains[:5])}{'...' if len(root_domains) > 5 else ''}")
 
-    # DEBUG DUMP 1: Input file
-    try:
-        Path("debug_subfinder_input.txt").write_text("\n".join(root_domains) + "\n", encoding="utf-8")
-        console.print(f"[bold yellow][DEBUG DUMP][/bold yellow] Saved Subfinder input targets to [bold green]debug_subfinder_input.txt[/bold green] ({len(root_domains)} domains)")
-    except Exception:
-        pass
-
     temp_targets_file = write_temp_targets(root_domains, prefix="recon_subfinder_")
 
+    # Official Subfinder flags:
+    # -dL: File containing list of domains for subdomain discovery
+    # -silent: Show only subdomains in output
+    # -oJ: Write output in JSONL format
+    # -all: Use all passive sources for maximum discovery
+    # -cs: Include discovery sources in JSON output
     args = [
         "-dL", str(temp_targets_file),
         "-silent",
@@ -84,13 +83,6 @@ def run_subfinder(
         )
     finally:
         temp_targets_file.unlink(missing_ok=True)
-
-    # DEBUG DUMP 2: Raw unfiltered output file
-    try:
-        Path("debug_subfinder_raw_output.txt").write_text(result.stdout, encoding="utf-8")
-        console.print(f"[bold yellow][DEBUG DUMP][/bold yellow] Saved Subfinder raw output to [bold green]debug_subfinder_raw_output.txt[/bold green] ({len(result.stdout)} bytes)")
-    except Exception:
-        pass
 
     console.print(f"[dim][DEBUG subfinder][/dim] Exit code: {result.exit_code}, Output length: {len(result.stdout)} bytes")
     if result.stderr and result.exit_code != 0:
@@ -128,12 +120,5 @@ def run_subfinder(
 
     if filtered_out_count > 0:
         console.print(f"[dim][DEBUG subfinder][/dim] {filtered_out_count} subdomains were filtered out by scope rules.")
-
-    # DEBUG DUMP 3: Actual filtered output file
-    try:
-        Path("debug_subfinder_filtered_output.txt").write_text("\n".join(discovered_hostnames) + "\n", encoding="utf-8")
-        console.print(f"[bold yellow][DEBUG DUMP][/bold yellow] Saved Subfinder filtered output to [bold green]debug_subfinder_filtered_output.txt[/bold green] ({len(discovered_hostnames)} subdomains)")
-    except Exception:
-        pass
 
     return discovered_hostnames

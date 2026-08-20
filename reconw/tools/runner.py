@@ -9,11 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
-from rich.console import Console
-
 from reconw.storage.repository import create_tool_result, utc_now
-
-console = Console(highlight=False)
 
 
 class ToolNotFoundError(Exception):
@@ -329,33 +325,6 @@ class ToolRunner:
 
         assert last_result is not None
         self._log_provenance(last_result, stage_name, run_id)
-
-        # TEMPORARY DEBUG DUMP: 1. Tool Input Targets File
-        try:
-            for idx, arg in enumerate(args):
-                if arg in ("-dL", "-l", "-u", "-list") and idx + 1 < len(args):
-                    input_file_path = Path(args[idx + 1])
-                    if input_file_path.exists():
-                        input_content = input_file_path.read_text(encoding="utf-8", errors="replace")
-                        in_debug_path = Path(f"debug_{tool_name}_input.txt")
-                        in_debug_path.write_text(input_content, encoding="utf-8")
-                        target_lines = [l for l in input_content.splitlines() if l.strip()]
-                        console.print(f"[bold yellow][DEBUG DUMP][/bold yellow] Saved [cyan]{tool_name}[/cyan] input to [bold green]{in_debug_path.resolve()}[/bold green] ({len(target_lines)} targets)")
-                        break
-        except Exception:
-            pass
-
-        # TEMPORARY DEBUG DUMP: 2. Tool Raw Unfiltered Output File
-        try:
-            raw_debug_path = Path(f"debug_{tool_name}_raw_output.txt")
-            out_content = last_result.stdout
-            if last_result.raw_output_path and last_result.raw_output_path.exists():
-                out_content = last_result.raw_output_path.read_text(encoding="utf-8", errors="replace")
-            if out_content:
-                raw_debug_path.write_text(out_content, encoding="utf-8")
-                console.print(f"[bold yellow][DEBUG DUMP][/bold yellow] Saved raw unfiltered [cyan]{tool_name}[/cyan] output to [bold green]{raw_debug_path.resolve()}[/bold green] ({len(out_content)} bytes)")
-        except Exception:
-            pass
 
         return last_result
 

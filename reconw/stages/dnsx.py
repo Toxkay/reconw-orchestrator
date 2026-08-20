@@ -9,15 +9,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Sequence
 
-from rich.console import Console
-
 from reconw.scope.validator import DomainValidator, ScopeEvaluator
 from reconw.storage.repository import insert_dns_record, upsert_asset
 from reconw.tools.parser import DnsxResult, parse_dnsx_output
 from reconw.tools.runner import run_tool, write_temp_targets
 from reconw.utils.canonical import canonicalize_hostname
-
-console = Console(highlight=False)
 
 
 def extract_hostnames(domains: Sequence[str]) -> list[str]:
@@ -42,17 +38,23 @@ def run_dnsx(
     timeout: int = 300,
     retries: int = 1,
 ) -> list[str]:
+    """Executes the DNSx resolution stage.
+
+    Args:
+        hostnames: Discovered subdomains from Subfinder and seed scope.
+        run_id: Pipeline run ID for SQLite tracking.
+        scope_evaluator: Optional evaluator to enforce scope boundaries.
+        timeout: Subprocess execution timeout in seconds.
+        retries: Number of retry attempts on failure.
+
+    Returns:
+        List of live, resolvable hostnames.
+    """
     clean_hostnames = extract_hostnames(hostnames)
     if not clean_hostnames:
         return []
 
-    # DEBUG DUMP 1: Input file
-    try:
-        Path("debug_dnsx_input.txt").write_text("\n".join(clean_hostnames) + "\n", encoding="utf-8")
-        console.print(f"[bold yellow][DEBUG DUMP][/bold yellow] Saved DNSx input targets to [bold green]debug_dnsx_input.txt[/bold green] ({len(clean_hostnames)} hosts)")
-    except Exception:
-        pass
-
+    # Write target hostnames to a temporary file for dnsx
     temp_targets_file = write_temp_targets(clean_hostnames, prefix="recon_dnsx_")
 
     args = [
@@ -76,13 +78,6 @@ def run_dnsx(
         )
     finally:
         temp_targets_file.unlink(missing_ok=True)
-
-    # DEBUG DUMP 2: Raw output file
-    try:
-        Path("debug_dnsx_raw_output.txt").write_text(result.stdout, encoding="utf-8")
-        console.print(f"[bold yellow][DEBUG DUMP][/bold yellow] Saved DNSx raw output to [bold green]debug_dnsx_raw_output.txt[/bold green] ({len(result.stdout)} bytes)")
-    except Exception:
-        pass
 
     # Parse stdout/raw NDJSON output into DnsxResult objects
     dns_results: list[DnsxResult] = parse_dnsx_output(result.stdout)
@@ -109,24 +104,18 @@ def run_dnsx(
             tool_result_id=result.tool_result_id,
         )
 
-        seen.add(hostname)
-        live_hostnames.append(hostname)
+        # Record all resolved DNS records (A, AAAA, CNAME)
+        for rec in item.records:
+            insert_dns_record(
+                asset_id=asset_id,
+                record_type=rec.record_type,
+                value=rec.value,
+                source_tool_result_id=result.tool_result_id,
+            )
 
-        # Record A / AAAA / CNAME records
-        for record_type, values in item.records.items():
-            for val in values:
-                insert_dns_record(
-                    asset_id=asset_id,
-                    record_type=record_type,
-                    value=val,
-                    source_tool_result_id=result.tool_result_id,
-                )
-
-    # DEBUG DUMP 3: Filtered output file
-    try:
-        Path("debug_dnsx_filtered_output.txt").write_text("\n".join(live_hostnames) + "\n", encoding="utf-8")
-        console.print(f"[bold yellow][DEBUG DUMP][/bold yellow] Saved DNSx filtered output to [bold green]debug_dnsx_filtered_output.txt[/bold green] ({len(live_hostnames)} hosts)")
-    except Exception:
-        pass
+        # Only return hostnames that actually resolved
+        if item.is_resolved and item.records:
+            seen.add(hostname)
+            live_hostnames.append(hostname)
 
     return live_hostnames
