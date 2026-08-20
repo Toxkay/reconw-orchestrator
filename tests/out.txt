@@ -1,15 +1,2 @@
-playcanvas.com
-www.bitstrips.com
-www.bitmoji.com
-web.snapchat.com
-story.snapchat.com
-store.snapchat.com
-store.playcanvas.com
-spectacles.com
-snappublisher.snapchat.com
-scan.snapchat.com
-rt.playcanvas.com
-relay.playcanvas.com
-playcanvas.com
-playcanv.as
-my.snapchat.com
+blog.example.com
+*.staging.example.com

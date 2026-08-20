@@ -2,7 +2,6 @@ import json
 import sqlite3
 import sys
 from pathlib import Path
-# pyrefly: ignore [missing-import]
 import pytest
 
 from reconw.storage.db import init_db
@@ -19,7 +18,6 @@ from reconw.tools.runner import (
 
 
 def test_is_tool_available_and_require_tool():
-    # Python executable is always present in the current test environment
     python_binary = sys.executable
     assert is_tool_available(python_binary) is True
     assert require_tool(python_binary) == python_binary
@@ -38,7 +36,6 @@ def test_write_temp_targets(tmp_path: Path):
     content = temp_file.read_text(encoding="utf-8").splitlines()
     assert content == targets
 
-    # Clean up
     temp_file.unlink(missing_ok=True)
 
 
@@ -65,7 +62,6 @@ def test_tool_execution_result_ndjson_and_lines():
 
 def test_tool_runner_successful_execution(tmp_path: Path):
     runner = ToolRunner(artifacts_dir=tmp_path / "artifacts")
-    # Run a safe python command that outputs NDJSON
     cmd_args = [
         "-c",
         'import sys; print(\'{"host": "test.local", "status": 200}\'); sys.stderr.write("info log\\n")',
@@ -92,7 +88,6 @@ def test_tool_runner_successful_execution(tmp_path: Path):
 
 def test_tool_runner_timeout_handling(tmp_path: Path):
     runner = ToolRunner(artifacts_dir=tmp_path / "artifacts")
-    # Run command that sleeps for 3 seconds with a 0.5 second timeout
     cmd_args = ["-c", "import time; time.sleep(3)"]
     result = runner.run(
         tool_name=sys.executable,
@@ -108,11 +103,8 @@ def test_tool_runner_timeout_handling(tmp_path: Path):
 
 
 def test_tool_runner_db_provenance_logging(tmp_path: Path, monkeypatch):
-    # Setup isolated test database
     db_file = tmp_path / "test_recon.db"
     init_db(db_file)
-
-    # Patch DB_PATH in storage.db and storage.repository
     monkeypatch.setattr("reconw.storage.db.DB_PATH", db_file)
 
     run_id = create_run(status="RUNNING")
@@ -130,7 +122,6 @@ def test_tool_runner_db_provenance_logging(tmp_path: Path, monkeypatch):
     assert result.tool_result_id is not None
     assert result.tool_result_id > 0
 
-    # Query the tool_result table directly to verify audit row
     conn = sqlite3.connect(db_file)
     cursor = conn.cursor()
     cursor.execute("SELECT run_id, stage_name, tool_name, exit_code, command FROM tool_result WHERE id = ?", (result.tool_result_id,))
