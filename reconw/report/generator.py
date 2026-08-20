@@ -7,6 +7,7 @@ and renders a self-contained, offline-compatible HTML report.
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,12 @@ from reconw.storage.repository import (
 )
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+
+
+def slugify(text: str) -> str:
+    """Converts text into a clean lowercase file slug."""
+    slug = re.sub(r"[^a-zA-Z0-9]+", "_", text.strip().lower())
+    return slug.strip("_") or "reconw"
 
 
 def generate_report_data(run_id: int) -> dict[str, Any]:
@@ -128,6 +135,8 @@ def render_html_report(
     template = env.get_template("report.html.j2")
 
     report_context = generate_report_data(run_id)
+    program_name = report_context.get("program_name") or "target"
+    prog_slug = slugify(program_name)
     rendered_html = template.render(**report_context)
 
     if output_path:
@@ -135,7 +144,7 @@ def render_html_report(
     else:
         dir_path = Path(reports_dir)
         dir_path.mkdir(parents=True, exist_ok=True)
-        out_file = dir_path / f"report_run_{run_id}.html"
+        out_file = dir_path / f"report_{prog_slug}_{run_id}.html"
 
     out_file.parent.mkdir(parents=True, exist_ok=True)
     out_file.write_text(rendered_html, encoding="utf-8")

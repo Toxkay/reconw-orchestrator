@@ -30,9 +30,9 @@ cli = typer.Typer(
 
 
 def slugify(text: str) -> str:
-    """Converts program name into a safe file slug (e.g. 'Bugcrowd - Tesla' -> 'bugcrowd_tesla')."""
-    slug = re.sub(r"[^a-zA-Z0-9_-]", "_", text.strip().lower())
-    return re.sub(r"_+", "_", slug).strip("_") or "reconw"
+    """Converts program name into a clean file slug (e.g. 'Bugcrowd - Tesla' -> 'bugcrowd_tesla')."""
+    slug = re.sub(r"[^a-zA-Z0-9]+", "_", text.strip().lower())
+    return slug.strip("_") or "reconw"
 
 
 @cli.command(name="run")
