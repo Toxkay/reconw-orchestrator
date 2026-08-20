@@ -170,7 +170,8 @@ def run_command(
         console.print(f"[blue][+] Database saved:[/blue] {target_db.resolve()}\n")
 
     except Exception as exc:
-        console.print(f"[bold red][!] Pipeline Failed:[/bold red] {exc}")
+        err_msg = str(exc) or repr(exc)
+        console.print(f"[bold red][!] Pipeline Failed:[/bold red] {err_msg}")
         raise typer.Exit(code=1)
 
 

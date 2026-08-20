@@ -41,7 +41,7 @@ def run_katana(
     depth: int = 2,
     rate_limit: int = 150,
     concurrency: int = 20,
-    crawl_duration: int = 120,
+    crawl_duration_minutes: int = 2,
     timeout: int = 600,
     retries: int = 0,
 ) -> list[str]:
@@ -56,6 +56,12 @@ def run_katana(
 
     temp_seeds_file = write_temp_targets(clean_seeds, prefix="recon_katana_")
 
+    # Katana flags optimized for high-performance pipeline execution:
+    # -u / -list: Target seed URLs file
+    # -j / -jsonl: JSON Lines output
+    # -jc: Enable JavaScript endpoint crawling
+    # -ct 2m: Max crawl duration per target (2 minutes cap)
+    # -or / -ob: Omit raw requests/responses & body to keep memory tiny (<5MB vs 800MB)
     args = [
         "-u", str(temp_seeds_file),
         "-silent",
@@ -63,8 +69,10 @@ def run_katana(
         "-d", str(depth),
         "-c", str(concurrency),
         "-rl", str(rate_limit),
-        "-ct", str(crawl_duration),
+        "-ct", f"{crawl_duration_minutes}m",
         "-jc",
+        "-or",
+        "-ob",
     ]
 
     try:
@@ -78,8 +86,7 @@ def run_katana(
             retries=retries,
         )
     finally:
-        temp_targets_file = temp_seeds_file
-        temp_targets_file.unlink(missing_ok=True)
+        temp_seeds_file.unlink(missing_ok=True)
 
     console.print(f"[dim][DEBUG katana][/dim] Exit code: {result.exit_code}, Output length: {len(result.stdout)} bytes")
     if result.stderr and result.exit_code != 0:
