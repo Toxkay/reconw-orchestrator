@@ -49,13 +49,19 @@ class PipelineSummary:
 
 
 def _validate_targets(targets: Sequence[str]) -> list[str]:
-    """Validates domain syntax and removes duplicates."""
+    """Validates domain syntax, handles wildcards/URLs, and removes duplicates."""
     validated: list[str] = []
     for target in targets:
         clean = target.strip()
-        if not clean:
+        if not clean or clean.startswith("#"):
             continue
-        validated.append(DomainValidator.validate(clean))
+        try:
+            val = DomainValidator.validate(clean)
+            if val:
+                validated.append(val)
+        except ValueError:
+            # Gracefully ignore descriptive non-domain lines from copy-pasted scope
+            continue
     return DomainValidator.remove_duplicates(validated)
 
 

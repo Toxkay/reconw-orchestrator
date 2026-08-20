@@ -1,34 +1,37 @@
+import fnmatch
 import re
-from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
 class DomainValidator:
-    """Validates and canonicalizes domain targets and wildcards."""
+    """Validates and canonicalizes domain targets, URLs, and wildcard patterns."""
 
     @staticmethod
     def validate(target: str) -> str:
         """
-        Normalize and validate a domain target.
+        Normalize and validate a domain target or wildcard pattern.
         Returns the canonical target or raises ValueError.
         """
-        target = DomainValidator.canonicalize(target)
+        canonical = DomainValidator.canonicalize(target)
+        if not canonical:
+            raise ValueError("Target domain cannot be empty.")
 
-        DomainValidator._check_path(target)
-        DomainValidator._check_wildcard(target)
-        DomainValidator._check_domain(target)
-
-        return target
+        DomainValidator._check_domain(canonical)
+        return canonical
 
     @staticmethod
     def canonicalize(target: str) -> str:
         """
-        Canonicalize a domain/hostname:
+        Canonicalize a domain/hostname/URL target:
         - Strips whitespace & lowercases
         - Strips protocol (http://, https://)
+        - Strips path components (/api/, /v1, etc.)
         - Strips default web ports (:80, :443)
-        - Strips trailing DNS dots (example.com. -> example.com)
+        - Strips trailing DNS dots
         """
         target = target.strip().lower()
+        if not target:
+            return ""
 
         # Strip protocol
         if target.startswith("http://"):
@@ -36,10 +39,9 @@ class DomainValidator:
         elif target.startswith("https://"):
             target = target[8:]
 
-        # Handle wildcards
-        is_wildcard = target.startswith("*.")
-        if is_wildcard:
-            target = target[2:]
+        # Strip any URL path (e.g. "dev*.playcanvas.com/api/" -> "dev*.playcanvas.com")
+        if "/" in target:
+            target = target.split("/")[0]
 
         # Strip default ports
         if target.endswith(":80"):
@@ -49,50 +51,23 @@ class DomainValidator:
 
         # Strip trailing dot
         target = target.rstrip(".")
-
-        return f"*.{target}" if is_wildcard else target
-
-    @staticmethod
-    def _check_path(target: str) -> None:
-        """Ensure the target does not contain a URL path."""
-        parts = urlsplit("http://" + target)
-        if parts.path and parts.path != "/":
-            raise ValueError(f"Target '{target}' should not contain a path.")
-
-    @staticmethod
-    def _check_wildcard(target: str) -> None:
-        """Validate wildcard placement."""
-        if "*" not in target:
-            return
-
-        if not target.startswith("*."):
-            raise ValueError(f"Target '{target}' has an invalid wildcard placement.")
-
-        if target.count("*") > 1:
-            raise ValueError(f"Target '{target}' should contain only one wildcard.")
+        return target
 
     @staticmethod
     def _check_domain(target: str) -> None:
-        """Validate the domain syntax."""
-        domain = target[2:] if target.startswith("*.") else target
+        """Validate target domain/wildcard pattern syntax."""
+        # Strip wildcards for characters validation
+        clean_domain = target.replace("*", "a")
 
-        # Reject any remaining non-standard ports
-        if ":" in domain:
+        if ":" in clean_domain:
             raise ValueError(f"Target '{target}' should not contain a port number.")
 
-        if not DomainValidator._is_valid_domain(domain):
-            raise ValueError(f"Target '{target}' is not a valid domain.")
+        if len(clean_domain) > 253:
+            raise ValueError(f"Target '{target}' exceeds 253 character limit.")
 
-    @staticmethod
-    def _is_valid_domain(domain: str) -> bool:
-        """Validate a hostname using standard RFC domain pattern."""
-        if len(domain) > 253 or not domain:
-            return False
-
-        pattern = re.compile(
-            r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
-        )
-        return pattern.fullmatch(domain) is not None
+        # Ensure valid domain/hostname format with dots
+        if "." not in clean_domain and not clean_domain.startswith("localhost"):
+            raise ValueError(f"Target '{target}' is not a valid domain name.")
 
     @staticmethod
     def remove_duplicates(targets: list[str]) -> list[str]:
@@ -145,7 +120,8 @@ class URLValidator:
 class ScopeEvaluator:
     """
     Evaluates whether discovered hosts or URLs are in-scope or out-of-scope.
-    Strictly enforces deny-over-allow precedence and flexible wildcard boundaries.
+    Supports exact domains, subdomains, and arbitrary wildcard globs (e.g. dev*.playcanvas.com, *us.tiktok.com).
+    Strictly enforces deny-over-allow precedence.
     """
 
     def __init__(self, in_scope: list[str], out_of_scope: list[str] | None = None):
@@ -158,22 +134,31 @@ class ScopeEvaluator:
     def match_pattern(target: str, pattern: str) -> bool:
         """
         Check if target matches a domain pattern:
-        - Pattern 'example.com' matches 'example.com' and 'sub.example.com'
-        - Pattern '*.example.com' matches 'example.com', 'sub.example.com', and 'a.b.example.com'
+        - Glob wildcard 'dev*.playcanvas.com' matches 'dev.playcanvas.com', 'dev1.playcanvas.com'
+        - Prefix wildcard '*.example.com' matches 'sub.example.com' and 'example.com'
+        - Suffix/infix wildcard '*us.tiktokv.com' matches 'us.tiktokv.com', 'api-us.tiktokv.com'
+        - Root domain 'example.com' matches 'example.com' and 'sub.example.com'
         """
         target = DomainValidator.canonicalize(target)
         pattern = DomainValidator.canonicalize(pattern)
 
-        # Exact match
+        if not target or not pattern:
+            return False
+
+        # 1. Exact match
         if target == pattern:
             return True
 
-        # Handle wildcard pattern (*.example.com)
-        if pattern.startswith("*."):
-            base = pattern[2:]
-            return target == base or target.endswith("." + base)
+        # 2. Glob / Wildcard pattern matching
+        if "*" in pattern:
+            if fnmatch.fnmatchcase(target, pattern):
+                return True
+            # Also allow root domain when pattern is *.domain.com
+            if pattern.startswith("*.") and target == pattern[2:]:
+                return True
+            return False
 
-        # Handle root domain pattern (example.com matches sub.example.com)
+        # 3. Base domain matches subdomains (e.g. snapchat.com matches web.snapchat.com)
         if target.endswith("." + pattern):
             return True
 
